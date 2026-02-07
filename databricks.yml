@@ -9,9 +9,20 @@ targets:
   dev:
     mode: development
     default: true
+  prod:
     workspace:
       host: https://dbc-c8f0798b-6927.cloud.databricks.com
-
+      
+resources:
+  jobs:
+    internship_tracker_job:
+      name: "[${bundle.target}] McWics Internship Tracker"
+      tasks:
+        - task_key: "run_scraper"
+          # Notebooks are first-class citizens in Free Edition
+          notebook_task:
+            notebook_path: ./notebooks/run_ingest.py
+            
   ## Optionally, there could be 'staging' or 'prod' targets here.
   #
   # prod:
