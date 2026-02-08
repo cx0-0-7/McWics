@@ -78,9 +78,11 @@ def main():
         
         if final_data:
             collection.insert_many(final_data)
-            print(f"SUCCESS: {len(final_data)} unique jobs added to Bronze via PySpark.")
-    else:
-        print("No jobs found during this run.")
-
+            print(f"SUCCESS: {len(final_data)} jobs added.")
+            print(f"Debug: all_pandas_df length = {len(all_pandas_df)}") # Check if scraping worked
+            if all_pandas_df:
+                print(f"Debug: spark_df row count = {spark_df.count()}") # Check if Spark conversion worked
+        return final_df 
+    return None
 if __name__ == "__main__":
     main()
