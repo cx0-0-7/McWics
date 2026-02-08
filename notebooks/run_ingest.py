@@ -8,7 +8,7 @@ project_root = os.path.abspath('..')
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from src.ingestion.silver_clean import silver_processing
+from src.transformations.silver_clean import silver_processing
 
 final_silver_df = silver_processing()
 
