@@ -1,6 +1,9 @@
 # Databricks notebook source
 
-%pip install python-jobspy pymongo[srv] google-generativeai
+%pip install python-jobspy pymongo[srv] google-generativeai playwright
+
+!playwright install chromium
+!playwright install-deps chromium
 
 # COMMAND ----------
 

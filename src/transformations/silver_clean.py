@@ -1,45 +1,57 @@
 from pyspark.sql import functions as F
-from src.ingestion.ingest_raw import main as run_bronze # Importing your existing Bronze logic
+from src.ingestion.ingest_raw import main as run_bronze
+from src.utils.utils import extract_job_details # Import your new utility
 
 def silver_processing():
-    #Trigger the Bronze Ingestion
+    # 1. Trigger Bronze Ingestion
     bronze_df = run_bronze()
-    
-    if bronze_df is None:
-        print("No new data found in Bronze to process.")
-        return None
+    if bronze_df is None: return None
 
-    #TARGET & RENAME (The "Schema Enforcement" step)
-    silver_df = bronze_df.select(
-        F.col("company").alias("Company_Name"),
-        F.col("title").alias("Role"),
-        F.col("location").alias("Location"),
-        F.col("job_url").alias("Job_URL"),
-        F.col("date_posted").alias("Date_Posted"),
-        F.col("description") # Kept for Gemini analysis later
-    )
-
-    #THE "TITLE-ONLY" BLACKLIST
-    # Only filter by Role
-    blacklist = ["Sales", "Marketing", "Compliance", "Legal", "Accounting", "HR", "Business Development"]
+    # 2. THE "SALES" PURGE (Keep this!)
+    blacklist = ["Sales", "Marketing", "Compliance", "Legal", "Accounting", "HR"]
     black_pattern = "(?i)" + "|".join(blacklist)
     
-    # Use the tilde (~) to say "Keep rows that DO NOT match this pattern"
-    silver_df = silver_df.filter(~F.col("Role").rlike(black_pattern))
+    # We filter FIRST so we don't run Playwright on junk jobs
+    pre_clean_df = bronze_df.filter(~F.col("title").rlike(black_pattern))
 
-    #REGEX TITLE CLEANING (Shortening the long titles)
+    # 3. ENRICHMENT LOOP (The new part)
+    # Convert to Python list to use Playwright browser
+    rows = pre_clean_df.collect()
+    enriched_data = []
+
+    print(f"Enriching {len(rows)} jobs with full descriptions...")
+
+    for row in rows:
+        # Use your new utility to get the REAL description and link
+        print(f"Attempting to enrich: {row['title']} at {row['company']}")
+        details = extract_job_details(row["job_url"])
+        if details['apply_link'] == row["job_url"]:
+            print(f"  --> Failed to find external link. Kept original.")
+        else:
+            print(f"  --> SUCCESS! Found: {details['apply_link'][:50]}...")
+        
+        enriched_data.append({
+            "Company_Name": row["company"],
+            "Role": row["title"],
+            "Location": row["location"],
+            "Job_URL": row["job_url"],
+            "Description": details["description"], # REPLACES the 'None'
+            "Apply_Link": details["apply_link"]     # The external link
+        })
+
+    
+    # Convert back to Spark for Schema Enforcement
+    spark = pre_clean_df.sparkSession
+    silver_df = spark.createDataFrame(enriched_data)
+
+    # Sorting Logic
+    # We cast to date first so Spark doesn't sort it alphabetically
+    silver_df = silver_df.withColumn("Date_Posted", F.to_date(F.col("Date_Posted"))) \
+                         .orderBy(F.col("Date_Posted").desc())
+
+    # REGEX CLEANING (Keep your cleaning logic)
     silver_df = silver_df.withColumn("Role", F.regexp_replace(F.col("Role"), r"\(.*?\)", ""))
-    # Cleans up bilingual slashes and extra spaces
     silver_df = silver_df.withColumn("Role", F.trim(F.regexp_replace(F.col("Role"), r" / .*", "")))
 
-    #DEDUPLICATION (Final check)
-    silver_df = silver_df.dropDuplicates(["Job_URL"])
-
-    print(f"Silver Processing Complete: {silver_df.count()} high-quality tech roles remaining.")
+    print(f"Silver Processing Complete: {silver_df.count()} roles ready for Gemini.")
     return silver_df
-
-if __name__ == "__main__":
-    # This allows you to see the cleaned table in your Databricks Notebook
-    final_silver_df = silver_processing()
-    if final_silver_df:
-        display(final_silver_df)
